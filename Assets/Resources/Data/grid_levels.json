@@ -1,0 +1,18 @@
+[
+	{
+		"level": "1",
+		"cellWidth": 1.66,
+		"cellHeight": 1.66,
+		"cellPadding": 0.03,
+		"numRows": 5,
+		"numColumns": 5
+	},
+	{
+		"level": "2",
+		"cellWidth": 1.66,
+		"cellHeight": 1.66,
+		"cellPadding": 0.03,
+		"numRows": 5,
+		"numColumns": 5
+	}
+]
