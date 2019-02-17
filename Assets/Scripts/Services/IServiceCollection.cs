@@ -5,7 +5,8 @@
 
     public interface IServiceCollection  {
 
-        T Resolve<T>();
+        T Register<T, U>(U instance) where U : class, T where T : IGameService;
+        T Resolve<T>() where T : IGameService;
     }
 
 }

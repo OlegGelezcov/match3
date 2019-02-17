@@ -5,7 +5,8 @@
 		"cellHeight": 1.66,
 		"cellPadding": 0.03,
 		"numRows": 5,
-		"numColumns": 5
+    "numColumns": 5,
+    "winScore":  100
 	},
 	{
 		"level": "2",
@@ -13,6 +14,7 @@
 		"cellHeight": 1.66,
 		"cellPadding": 0.03,
 		"numRows": 5,
-		"numColumns": 5
+    "numColumns": 5,
+    "winScore":  150
 	}
 ]

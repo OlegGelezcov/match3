@@ -1,4 +1,5 @@
-﻿using System;
+﻿
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -199,7 +200,9 @@ namespace Ozh.Tools.IoC {
             }
         }
 
-        private void Inject(object obj ) {
+        public void Inject(object obj ) {
+            UnityEngine.Debug.Log($"Inject object of type: {obj.GetType().Name}");
+
             Type objType = obj.GetType();
             FieldInfo[] publicFields = objType.GetFields(BindingFlags.Public | BindingFlags.Instance);
             FieldInfo[] privateFields = objType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance);
@@ -214,29 +217,44 @@ namespace Ozh.Tools.IoC {
 
         private void InjectFields(object obj, FieldInfo[] fields ) {
             foreach(FieldInfo field in fields ) {
-                var attributes = field.GetCustomAttributes(typeof(InjectAttribute), true);
-                if(attributes.Length > 0 ) {
-                    string idVal = GetIdAttribute(field);
-                    if(string.IsNullOrEmpty(idVal)) {
-                        field.SetValue(obj, ResolveAnyObject(field.FieldType));
-                    } else {
-                        field.SetValue(obj, ResolveObjectWithId(field.FieldType, idVal));
+                if (registeredObjects.ContainsKey(field.FieldType)) {
+                    UnityEngine.Debug.Log($"Inject field: {field.Name} of type: {field.FieldType}");
+                    var attributes = field.GetCustomAttributes(typeof(InjectAttribute), true);
+                    if (attributes.Length > 0) {
+                        string idVal = GetIdAttribute(field);
+                        if (string.IsNullOrEmpty(idVal)) {
+                            field.SetValue(obj, ResolveAnyObject(field.FieldType));
+                        } else {
+                            field.SetValue(obj, ResolveObjectWithId(field.FieldType, idVal));
+                        }
                     }
+                } else {
+                    UnityEngine.Debug.Log($"ignore field: {field.Name} of type: {field.FieldType}");
                 }
             }
         }
 
         private void InjectProperties(object obj, PropertyInfo[] properties ) {
-            foreach(PropertyInfo property in properties ) {
-                var attributes = property.GetCustomAttributes(typeof(InjectAttribute), true);
-                if(attributes.Length > 0 ) {
-                    string idVal = GetIdAttribute(property);
-                    if (string.IsNullOrEmpty(idVal)) {
-                        property.SetValue(obj, ResolveAnyObject(property.PropertyType));
+            try {
+                foreach (PropertyInfo property in properties) {
+                    UnityEngine.Debug.Log($"Inject property: {property.Name} of type: {property.PropertyType}");
+
+                    if (registeredObjects.ContainsKey(property.PropertyType)) {
+                        var attributes = property.GetCustomAttributes(typeof(InjectAttribute), false);
+                        if (attributes.Length > 0) {
+                            string idVal = GetIdAttribute(property);
+                            if (string.IsNullOrEmpty(idVal)) {
+                                property.SetValue(obj, ResolveAnyObject(property.PropertyType));
+                            } else {
+                                property.SetValue(obj, ResolveObjectWithId(property.PropertyType, idVal));
+                            }
+                        }
                     } else {
-                        property.SetValue(obj, ResolveObjectWithId(property.PropertyType, idVal));
+                        UnityEngine.Debug.Log($"ignore property: {property.Name} of type: {property.PropertyType}");
                     }
                 }
+            } catch (Exception ex) {
+                UnityEngine.Debug.Log($"error for type: {obj.GetType().Name}");
             }
         }
     }
@@ -252,3 +270,4 @@ namespace Ozh.Tools.IoC {
 
     public class InjectAttribute : Attribute { }
 }
+

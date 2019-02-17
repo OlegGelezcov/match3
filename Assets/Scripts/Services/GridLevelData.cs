@@ -11,6 +11,7 @@
         public float cellPadding;
         public int numRows;
         public int numColumns;
+        public int winScore;
     }
 
     public interface IGridLevelRepository : IRepository {

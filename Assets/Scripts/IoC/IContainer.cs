@@ -1,6 +1,6 @@
-﻿namespace Ozh.Tools.IoC {
-    public interface IContainer
-    {
+﻿
+namespace Ozh.Tools.IoC {
+    public interface IContainer {
         IObjectBuilder AddTransient<ITypeToResolve, TConcrete>();
 
         IObjectBuilder AddTransient<TConcrete>();
@@ -11,8 +11,10 @@
 
         ITypeToResolve Resolve<ITypeToResolve>();
         ITypeToResolve Resolve<ITypeToResolve>(string id);
+        void Inject(object obj);
 
         void Build();
 
     }
 }
+

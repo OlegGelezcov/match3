@@ -32,6 +32,10 @@ namespace Ozh.Services {
         public Vector2 InputPosition { get; set; }
         public Swipe Direction { get; set; }
         public Vector2 Velocity { get; set; }
+
+        public override string ToString() {
+            return $"Phase: {Phase}, Direction: {Direction}, Position: {InputPosition}, Velocity: {Velocity}";
+        }
     }
 
     public class SwipeService : MonoBehaviour, ISwipeService  {
@@ -40,7 +44,7 @@ namespace Ozh.Services {
         const float defaultDPI = 72f;
         const float dpcmFactor = 2.54f;
 
-        float minSwipeLength = 0.5f;
+        public float minSwipeLength = 0.5f;
 
         Dictionary<Swipe, Vector2> directions = new Dictionary<Swipe, Vector2> {
             [Swipe.Up] = MoveVectors.Up,
@@ -61,11 +65,8 @@ namespace Ozh.Services {
         private Vector2 firstPressPos;
         private Vector2 secondPressPos;
 
-        public void Construct() {
-            Setup();
-        }
 
-        public void Setup(object obj = null ) { }
+        public void Setup(IServiceCollection services ) { }
 
         private void Awake() {
             float dpi = (Screen.dpi == 0) ? defaultDPI : Screen.dpi;
@@ -121,12 +122,17 @@ namespace Ozh.Services {
                 } else {
                     if (!swipeEnded) {
                         secondPressPos = t.position;
-                        SwipeObservable.OnNext(new SwipeInfo {
-                            Direction = GetSwipeDirByTouch(t.position - firstPressPos),
-                            InputPosition = t.position,
-                            Phase = SwipePhase.Continue,
-                            Velocity = (Time.time - swipeStartTime) * (t.position - firstPressPos)
-                        });
+                        Vector2 currentSwipe = secondPressPos - firstPressPos;
+                        float swipeCm = currentSwipe.magnitude / dpcm;
+
+                        if (swipeCm >= minSwipeLength) {
+                            SwipeObservable.OnNext(new SwipeInfo {
+                                Direction = GetSwipeDirByTouch(t.position - firstPressPos),
+                                InputPosition = t.position,
+                                Phase = SwipePhase.Continue,
+                                Velocity = (Time.time - swipeStartTime) * (t.position - firstPressPos)
+                            });
+                        }
                     }
                     return true;
                 }
@@ -150,12 +156,16 @@ namespace Ozh.Services {
             } else {
                 if (!swipeEnded) {
                     secondPressPos = Input.mousePosition;
-                    SwipeObservable.OnNext(new SwipeInfo {
-                        Direction = GetSwipeDirByTouch((Vector2)Input.mousePosition - firstPressPos),
-                        InputPosition = Input.mousePosition,
-                        Phase = SwipePhase.Continue,
-                        Velocity = (Time.time - swipeStartTime) * ((Vector2)Input.mousePosition - firstPressPos)
-                    });
+                    Vector2 currentSwipe = secondPressPos - firstPressPos;
+                    float swipeCm = currentSwipe.magnitude / dpcm;
+                    if (swipeCm >= minSwipeLength) {
+                        SwipeObservable.OnNext(new SwipeInfo {
+                            Direction = GetSwipeDirByTouch((Vector2)Input.mousePosition - firstPressPos),
+                            InputPosition = Input.mousePosition,
+                            Phase = SwipePhase.Continue,
+                            Velocity = (Time.time - swipeStartTime) * ((Vector2)Input.mousePosition - firstPressPos)
+                        });
+                    }
                 }
                 return true;
             }

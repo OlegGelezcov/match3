@@ -2,6 +2,6 @@
 
 
     public interface IGameService {
-        void Setup(object obj = null);
+        void Setup(IServiceCollection services);
     }
 }
