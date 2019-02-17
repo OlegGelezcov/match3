@@ -9,7 +9,7 @@
     using UnityEngine;
 
     public interface IGridService : IGameService {
-        void MakeGrid(int level);
+        void MakeGrid(GridLevelData data);
         void ClearGrid();
     }
 
@@ -18,34 +18,65 @@
         private IElementSpawner ElementSpawner { get; set; }
         private ISwipeService SwipeService { get; set; }
         private IGameStateService GameStateService { get; set; }
-        private IGridLevelRepository GridLevelRepository { get; set; }
         private IPrefabRepository<string> PrefabRepository { get; set; }
         private ICoroutineService CoroutineService { get; set; }
 
         private Transform GridParent { get; set; }
         private GridCell[,] Cells { get; set; }
         private IDisposable swipeDisposable;
+        private GridLevelData Data { get; set; }
 
-        private float CellWidth { get;  set; }
-        private float CellHeight { get;  set; }
-        private float CellPadding { get;  set; }
-        public int NumRows { get; private set; }
-        public int NumColumns { get;  private set; }
+
+
 
         public void Setup(IServiceCollection services) {
             ElementSpawner = services.Resolve<IElementSpawner>();
             SwipeService = services.Resolve<ISwipeService>();
             GameStateService = services.Resolve<IGameStateService>();
-            GridLevelRepository = services.Resolve<IResourceService>().GetRepository<IGridLevelRepository>();
             PrefabRepository = services.Resolve<IResourceService>().GetRepository<IPrefabRepository<string>>();
             CoroutineService = services.Resolve<ICoroutineService>();
+
+            swipeDisposable = SwipeService.SwipeObservable.Subscribe(info => {
+                if (info.Phase == SwipePhase.Start) {
+                    var hit = Physics2D.Raycast(Camera.main.ScreenToWorldPoint(info.InputPosition), Vector2.zero);
+                    if (hit.transform) {
+                        Debug.Log(hit.transform.name);
+                        var gridElement = hit.transform.GetComponent<GridElement>();
+                        if (gridElement) {
+                            SelectionChangedObservable.OnNext(new SelectionChangedArgs {
+                                Element = gridElement
+                            });
+                        }
+                    }
+                } else if (info.Phase == SwipePhase.Continue && info.Direction != Swipe.None) {
+                    if (HasSelection && !IsGridLocked) {
+                        MoveObservable.OnNext(new MoveElementArgs { Direction = info.Direction });
+                    }
+                }
+            });
         }
+
+        private float CellWidth => Data?.cellWidth ?? 0;
+
+        private float CellHeight => Data?.cellHeight ?? 0;
+
+        private float CellPadding => Data?.cellPadding ?? 0;
+
+        public int NumRows => Data?.numRows ?? 0;
+
+        public int NumColumns => Data?.numColumns ?? 0;
 
         public float ElementVerticalSpeed
             => TotalHeight / 0.25f;
 
         public float ElementHorizontalSpeed
             => TotalWidth / 0.25f;
+
+        private float TotalHeight
+            => CellHeight * NumColumns + CellPadding * (NumColumns - 1);
+
+        private float TotalWidth
+            => CellWidth * NumRows + CellPadding * (NumRows - 1);
 
         public float SlideSpeed(Swipe direction) {
             if(direction == Swipe.Left || direction == Swipe.Right ) {
@@ -63,14 +94,9 @@
 
 
 
-        public void MakeGrid(int gridLevel) {
+        public void MakeGrid(GridLevelData data) {
             ClearGrid();
-            GridLevelData data = GridLevelRepository.GetGridLevelData(gridLevel);
-            CellWidth = data.cellWidth;
-            CellHeight = data.cellHeight;
-            CellPadding = data.cellPadding;
-            NumRows = data.numRows;
-            NumColumns = data.numColumns;
+            Data = data;
             Cells = new GridCell[NumRows, NumColumns];
 
             GameObject gridParent = new GameObject("GridParent");
@@ -92,26 +118,7 @@
                 ScanAndFill();
             });
 
-            swipeDisposable = SwipeService.SwipeObservable.Subscribe(info => {
-                if(info.Phase == SwipePhase.Start ) {
-                    var hit = Physics2D.Raycast(Camera.main.ScreenToWorldPoint(info.InputPosition), Vector2.zero);
-                    if(hit.transform) {
-                        Debug.Log(hit.transform.name);
-                        var gridElement = hit.transform.GetComponent<GridElement>();
-                        if(gridElement) {
-                            SelectionChangedObservable.OnNext(new SelectionChangedArgs {
-                                Element = gridElement
-                            });
-                        }
-                    }
-                } else if(info.Phase == SwipePhase.End) {
-                    //Debug.Log("End");
-                } else if(info.Phase == SwipePhase.Continue && info.Direction != Swipe.None) {
-                    if(HasSelection && !IsGridLocked) {
-                        MoveObservable.OnNext(new MoveElementArgs { Direction = info.Direction });
-                    }
-                }
-            }); 
+
         }
 
         public void ClearGrid() {
@@ -131,11 +138,6 @@
                 GameObject.Destroy(GridParent.gameObject);
                 GridParent = null;
             }
-
-            if(swipeDisposable != null ) {
-                swipeDisposable.Dispose();
-                swipeDisposable = null;
-            }
         }
 
         public GridCell this[int i, int j] {
@@ -144,11 +146,7 @@
             }
         }
 
-        private float TotalHeight
-            => CellHeight * NumColumns + CellPadding * (NumColumns - 1);
 
-        private float TotalWidth 
-            => CellWidth * NumRows + CellPadding * (NumRows - 1);
 
         private bool HasSelection {
             get {
@@ -201,6 +199,57 @@
                 startY - cellPosition.Row * (CellHeight + CellPadding), 0f);
         }
 
+
+        public void CheckMove(GridCell fromCell, GridCell toCell, Action onNotFoundMatch) {
+            var rowRange = ScanRowAtCell(toCell, fromCell);
+            var rowRange2 = ScanRowAtCell(fromCell, toCell);
+            var columnRange = ScanColumnAtCell(toCell, fromCell);
+            var columnRange2 = ScanColumnAtCell(fromCell, toCell);
+
+            int maxLength = new List<CellRange> { rowRange, rowRange2, columnRange, columnRange2 }.Max(r => r.Count());
+
+            if (rowRange.Count() >= 3 && (rowRange.Count() == maxLength)) {
+                ExchangeCells(fromCell, toCell, () => {
+                    CoroutineService.ExecuteCoroutine(DestroyScanAndFill(rowRange));
+                    fromCell.SetState(GridCellState.Normal);
+                    fromCell.ToggleSelection(false);
+                });
+                return;
+            }
+            if (rowRange2.Count() >= 3 && (rowRange2.Count() == maxLength)) {
+                ExchangeCells(fromCell, toCell, () => {
+                    CoroutineService.ExecuteCoroutine(DestroyScanAndFill(rowRange2));
+                    toCell.SetState(GridCellState.Normal);
+                    fromCell.ToggleSelection(false);
+                });
+                return;
+            }
+
+            if (columnRange.Count() >= 3 && (columnRange.Count() == maxLength)) {
+                ExchangeCells(fromCell, toCell, () => {
+                    CoroutineService.ExecuteCoroutine(DestroyScanAndFill(columnRange));
+                    fromCell.SetState(GridCellState.Normal);
+                    fromCell.ToggleSelection(false);
+                });
+                return;
+            }
+
+            if (columnRange2.Count() >= 3 && (columnRange2.Count() == maxLength)) {
+                ExchangeCells(fromCell, toCell, () => {
+                    CoroutineService.ExecuteCoroutine(DestroyScanAndFill(columnRange2));
+                    toCell.SetState(GridCellState.Normal);
+                    fromCell.ToggleSelection(false);
+                });
+                return;
+            }
+
+            onNotFoundMatch?.Invoke();
+        }
+
+        /// <summary>
+        /// Scan all grid for matches and fill empty spaces
+        /// </summary>
+        /// <param name="fillBefore"></param>
         public void ScanAndFill(bool fillBefore = false) {
             if (fillBefore) {
                 FillGrid(() => CoroutineService.ExecuteCoroutine(ScanAndFillImpl()));
@@ -213,34 +262,22 @@
             int rowCursor = NumRows - 1;
             int colCursor = 0;
             while(rowCursor >= 0 ) {
-                Debug.Log($"start row: {rowCursor}");
                 var range = ScanRowForMatch(rowCursor, 0);
-                Debug.Log($"row match: {range.ToString()}");
                 if(range.Count() >= 3 ) {
-                    Debug.Log("start destroy row range");
                     DestroyRange(range);
-                    Debug.Log("wait for grid normal");
                     yield return new WaitUntil(() => IsGridNormal);
-                    Debug.Log("wait for fill grid");
                     yield return FillGridImpl(() => { });
-                    Debug.Log("scan and fill on this row again");
                     yield return ScanAndFillImpl();
                 } else {
                     rowCursor--;
                 }
             }
             while(colCursor < NumColumns) {
-                Debug.Log($"start column: {colCursor}");
                 var range = ScanColumnForMatch(NumRows - 1, colCursor);
-                Debug.Log($"column match: {range.ToString()}");
                 if(range.Count() >= 3 ) {
-                    Debug.Log("start destroy column range");
                     DestroyRange(range);
-                    Debug.Log("wait for grid normal");
                     yield return new WaitUntil(() => IsGridNormal);
-                    Debug.Log("wait for fill grid");
                     yield return FillGridImpl(() => { });
-                    Debug.Log("scan and fill on this row again");
                     yield return ScanAndFillImpl();
                 } else {
                     colCursor++;
@@ -273,19 +310,15 @@
             CellRange wholeColumn = CellRange.FromColumn(Cells, column);
             yield return new WaitUntil(() => wholeColumn.All(c => c.State == GridCellState.Normal));
             CellRange emptyRange = GetFirstEmptyColumnRange(column);
-            Debug.Log($"COL => {column}");
-            Debug.Log($"EMPTY RANGE: {emptyRange.ToString()}");
             if(emptyRange.Count() == 0 ) {
                 yield break;
             }
             CellRange nonEmptyRange = GetNonEmptyColumnRange(emptyRange.MinRow - 1, column);
-            Debug.Log($"fILLED RANGE: {nonEmptyRange.ToString()}");
             if(nonEmptyRange.Count() != 0 ) {
                 //we drop items outside grid
                 foreach(var cell in nonEmptyRange) {
                     cell.DropElementDownOn(emptyRange.Count());
                 }
-                Debug.Log($"SHIFT FILLED RANGE: {nonEmptyRange.ToString()} on cells down: {emptyRange.Count()}");
                 ShiftColumn(column);
             } else {
                 //we drop items on grid
@@ -298,7 +331,6 @@
                     outIndex--;
                     cell.DropOnMe(element);
                 }
-                Debug.Log($"CREATE {emptyRange.Count()} NEW ELEMENTS");
             }
         }
 
@@ -347,60 +379,6 @@
             return new CellRange(nonEmptyCells);
         }
 
-        public void DestroyElements(int count) {
-            for(int i = 0; i < count; i++ ) {
-                int rndRow = UnityEngine.Random.Range(0, NumRows);
-                int rndCol = UnityEngine.Random.Range(0, NumColumns);
-                Cells[rndRow, rndCol].DestroyElement();
-            }
-            
-        }
-
-        public void CheckMove(GridCell fromCell, GridCell toCell, Action onNotFoundMatch ) {
-            var rowRange = ScanRowAtCell(toCell, fromCell);
-            var rowRange2 = ScanRowAtCell(fromCell, toCell);
-            var columnRange = ScanColumnAtCell(toCell, fromCell);
-            var columnRange2 = ScanColumnAtCell(fromCell, toCell);
-
-            int maxLength = new List<CellRange> { rowRange, rowRange2, columnRange, columnRange2 }.Max(r => r.Count());
-
-            if (rowRange.Count() >= 3 && (rowRange.Count() == maxLength) ) {
-                ExchangeCells(fromCell, toCell, () => {
-                    CoroutineService.ExecuteCoroutine(DestroyScanAndFill(rowRange));
-                    fromCell.SetState(GridCellState.Normal);
-                    fromCell.ToggleSelection(false);
-                });
-                return;
-            } 
-            if(rowRange2.Count() >= 3 && (rowRange2.Count() == maxLength)) {
-                ExchangeCells(fromCell, toCell, () => {
-                    CoroutineService.ExecuteCoroutine(DestroyScanAndFill(rowRange2));
-                    toCell.SetState(GridCellState.Normal);
-                    fromCell.ToggleSelection(false);
-                });
-                return;
-            }
-
-            if (columnRange.Count() >= 3 && (columnRange.Count() == maxLength)) {
-                ExchangeCells(fromCell, toCell, () => {
-                    CoroutineService.ExecuteCoroutine(DestroyScanAndFill(columnRange));
-                    fromCell.SetState(GridCellState.Normal);
-                    fromCell.ToggleSelection(false);
-                });
-                return;
-            }
-
-            if(columnRange2.Count() >= 3  && (columnRange2.Count() == maxLength)) {
-                ExchangeCells(fromCell, toCell, () => {
-                    CoroutineService.ExecuteCoroutine(DestroyScanAndFill(columnRange2));
-                    toCell.SetState(GridCellState.Normal);
-                    fromCell.ToggleSelection(false);
-                });
-                return;
-            }
-
-            onNotFoundMatch?.Invoke();
-        }
 
         private IEnumerator DestroyScanAndFill(CellRange range) {
             DestroyRange(range);
@@ -634,9 +612,7 @@
 
             yield return new WaitForSeconds(0.3f);
 
-            foreach(var cell in range) {
-                //yield return new WaitForEndOfFrame();
-                //yield return new WaitForEndOfFrame();
+            foreach (var cell in range) {
                 yield return new WaitForSeconds(0.03f);
                 cell.DestroyElement(false);
             }

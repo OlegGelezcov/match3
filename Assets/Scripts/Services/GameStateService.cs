@@ -37,7 +37,7 @@
         }
 
         public void StartGame() {
-            GridService.MakeGrid(GridLevel.Value);
+            GridService.MakeGrid(GridLevelRepository.GetGridLevelData(GridLevel.Value));
             SetGameState(GameState.Game);
         }
 
